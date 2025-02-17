@@ -2,32 +2,53 @@ const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const { MongoClient, ObjectId } = require("mongodb");
+require("dotenv").config();
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
-// 🔧 MongoDB Connection
-const MONGO_URI = "mongodb://127.0.0.1:27017"; 
-const DB_NAME = "reclaim";
+// ✅ Ensure `MONGO_URI` is pulled from Railway variables correctly
+const MONGO_URI = process.env.MONGO_URI;
+
+if (!MONGO_URI) {
+    console.error("❌ ERROR: Missing MongoDB connection string in environment variables!");
+    process.exit(1);
+}
+
 let db;
 
+// 🛠 Connect to MongoDB
 MongoClient.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
     .then(client => {
-        db = client.db(DB_NAME);
+        db = client.db();
         console.log("✅ Connected to MongoDB");
     })
-    .catch(err => console.error("❌ MongoDB Connection Error:", err));
+    .catch(err => {
+        console.error("❌ MongoDB Connection Error:", err);
+        process.exit(1); // Exit if MongoDB fails to connect
+    });
 
-// 🔧 Middleware
+// Middleware
 app.use(cors());
 app.use(bodyParser.json());
 
-// 🟢 Test API
+// 🟢 **Health Check API**
 app.get("/", (req, res) => {
     res.send("✅ Server is running.");
 });
 
-// 📌 **1. Track a Referral (FORCE INTO LEADERBOARD & PENDING ANNOUNCEMENTS)**
+// 🟢 **Test API Endpoint to Check MongoDB Connection**
+app.get("/api/ping", async (req, res) => {
+    try {
+        const test = await db.collection("referrals").findOne({});
+        res.json({ success: true, message: "✅ MongoDB is connected!", data: test || {} });
+    } catch (error) {
+        console.error("❌ Error fetching test data:", error);
+        res.status(500).json({ success: false, message: "MongoDB connection error" });
+    }
+});
+
+// 📌 **1. Track a Referral**
 app.post("/api/track-referral", async (req, res) => {
     try {
         const { referrer, referredUser } = req.body;
@@ -36,7 +57,6 @@ app.post("/api/track-referral", async (req, res) => {
             return res.status(400).json({ success: false, message: "Missing referrer or referredUser" });
         }
 
-        // ✅ **Insert Referral**
         await db.collection("referrals").insertOne({
             referrer,
             referredUser,
@@ -45,23 +65,8 @@ app.post("/api/track-referral", async (req, res) => {
             announced: 0 // Default: Not announced
         });
 
-        // ✅ **Insert into Pending Announcements**
-        await db.collection("pending_announcements").insertOne({
-            referrer,
-            referredUser,
-            timestamp: Date.now(),
-            announced: false
-        });
-
-        // ✅ **Update Leaderboard (Force Add/Increment)**
-        await db.collection("leaderboard").updateOne(
-            { referrer }, 
-            { $inc: { totalReferrals: 1 } }, 
-            { upsert: true }
-        );
-
         console.log(`🔄 Referral logged: ${referrer} → ${referredUser}`);
-        res.json({ success: true, message: "Referral tracked successfully and added to leaderboard." });
+        res.json({ success: true, message: "Referral tracked successfully." });
 
     } catch (error) {
         console.error("❌ Error tracking referral:", error);
@@ -155,7 +160,12 @@ app.post("/api/mark-announced", async (req, res) => {
 // 📌 **7. Leaderboard: Top Referrers**
 app.get("/api/leaderboard", async (req, res) => {
     try {
-        const leaderboard = await db.collection("leaderboard").find().sort({ totalReferrals: -1 }).limit(10).toArray();
+        const leaderboard = await db.collection("referrals").aggregate([
+            { $match: { verified: 1 } }, 
+            { $group: { _id: "$referrer", totalReferrals: { $sum: 1 } } }, 
+            { $sort: { totalReferrals: -1 } },
+            { $limit: 10 }
+        ]).toArray();
 
         res.json({ success: true, leaderboard });
     } catch (error) {
@@ -168,4 +178,3 @@ app.get("/api/leaderboard", async (req, res) => {
 app.listen(PORT, () => {
     console.log(`✅ Server running on http://localhost:${PORT}`);
 });
-
