@@ -5,9 +5,9 @@ const { MongoClient, ObjectId } = require("mongodb");
 require("dotenv").config();
 
 const app = express();
-const PORT = process.env.PORT || 8080; // ✅ Use Railway-assigned PORT if available
+const PORT = process.env.PORT || 8080; // ✅ Railway-assigned PORT or fallback
 
-// ✅ Log MongoDB URI to check if it's correct
+// ✅ Ensure `MONGO_URI` is pulled from Railway variables correctly
 const MONGO_URI = process.env.MONGO_URI;
 console.log(`🔹 Using MongoDB URI: ${MONGO_URI}`);
 
@@ -124,58 +124,8 @@ app.post("/api/verify-referral", async (req, res) => {
     }
 });
 
-// 📌 **5. Get Pending Announcements**
-app.get("/api/pending-announcements", async (req, res) => {
-    try {
-        const pendingReferrals = await db.collection("referrals").find({ verified: 1, announced: 0 }).toArray();
-        res.json({ success: true, pendingReferrals });
-    } catch (error) {
-        console.error("❌ Error fetching pending announcements:", error);
-        res.status(500).json({ success: false, message: "Server error" });
-    }
-});
-
-// 📌 **6. Mark Referral as Announced**
-app.post("/api/mark-announced", async (req, res) => {
-    try {
-        const { referredUser } = req.body;
-
-        const result = await db.collection("referrals").updateOne(
-            { referredUser },
-            { $set: { announced: 1 } }
-        );
-
-        if (result.modifiedCount === 0) {
-            return res.status(404).json({ success: false, message: "Referral not found" });
-        }
-
-        console.log(`📢 Referral announced: ${referredUser}`);
-        res.json({ success: true, message: "Referral marked as announced." });
-
-    } catch (error) {
-        console.error("❌ Error marking referral as announced:", error);
-        res.status(500).json({ success: false, message: "Server error" });
-    }
-});
-
-// 📌 **7. Leaderboard: Top Referrers**
-app.get("/api/leaderboard", async (req, res) => {
-    try {
-        const leaderboard = await db.collection("referrals").aggregate([
-            { $match: { verified: 1 } }, 
-            { $group: { _id: "$referrer", totalReferrals: { $sum: 1 } } }, 
-            { $sort: { totalReferrals: -1 } },
-            { $limit: 10 }
-        ]).toArray();
-
-        res.json({ success: true, leaderboard });
-    } catch (error) {
-        console.error("❌ Error fetching leaderboard:", error);
-        res.status(500).json({ success: false, message: "Server error" });
-    }
-});
-
 // ✅ **Start Server & Listen on 0.0.0.0**
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Server running on http://0.0.0.0:${PORT}`);
 });
+
